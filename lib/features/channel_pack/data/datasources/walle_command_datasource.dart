@@ -1,11 +1,14 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:process_run/shell_run.dart';
 import '../../../../core/constants/app_constants.dart';
+import '../../../../core/utils/java_manager.dart';
 
 /// Walle 命令行数据源
 /// 负责与 Walle JAR 文件交互，执行渠道打包命令
+/// Walle JAR 从应用 assets 中复制，无需下载
 class WalleCommandDatasource {
   WalleCommandDatasource._();
 
@@ -13,31 +16,66 @@ class WalleCommandDatasource {
   static WalleCommandDatasource get instance => _instance;
 
   File? _walleJarFile;
+  File? _javaExecutable;
+  bool _isCopying = false;
+
+  /// 获取 Java 可执行文件
+  Future<File> _getJavaExecutable() async {
+    if (_javaExecutable != null && await _javaExecutable!.exists()) {
+      return _javaExecutable!;
+    }
+    _javaExecutable = await JavaManager.instance.getJavaExecutable();
+    return _javaExecutable!;
+  }
 
   /// 获取 Walle JAR 文件
+  /// 首次调用时会从 assets 复制到应用目录
   Future<File> getWalleJarFile() async {
+    if (_isCopying) {
+      // 等待复制完成
+      while (_isCopying) {
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
+    }
+
     if (_walleJarFile != null && await _walleJarFile!.exists()) {
       return _walleJarFile!;
     }
 
-    final appDir = await getApplicationSupportDirectory();
-    final walleDir = Directory(p.join(appDir.path, 'walle'));
+    _isCopying = true;
+    try {
+      final appDir = await getApplicationSupportDirectory();
+      final walleDir = Directory(p.join(appDir.path, 'walle'));
 
-    if (!(await walleDir.exists())) {
-      await walleDir.create(recursive: true);
+      if (!(await walleDir.exists())) {
+        await walleDir.create(recursive: true);
+      }
+
+      _walleJarFile = File(p.join(walleDir.path, 'walle-cli-all.jar'));
+
+      // 如果文件不存在，从 assets 复制
+      if (!(await _walleJarFile!.exists())) {
+        await _copyWalleJarFromAssets(_walleJarFile!);
+      }
+
+      return _walleJarFile!;
+    } finally {
+      _isCopying = false;
     }
+  }
 
-    _walleJarFile = File(p.join(walleDir.path, 'walle-cli-all.jar'));
+  /// 从 assets 复制 Walle JAR
+  Future<void> _copyWalleJarFromAssets(File targetFile) async {
+    try {
+      // 从 assets 加载 Walle JAR
+      final byteData = await rootBundle.load('assets/walle/walle-cli-all.jar');
+      final bytes = byteData.buffer.asUint8List();
 
-    // 如果文件不存在，需要用户手动下载
-    if (!(await _walleJarFile!.exists())) {
-      throw WalleJarNotFoundException(
-        'Walle JAR 文件未找到，请下载后放置到: ${walleDir.path}\n'
-        '下载地址: ${AppConstants.walleDownloadUrl}',
-      );
+      // 写入目标文件
+      await targetFile.writeAsBytes(bytes);
+    } catch (e) {
+      throw WalleJarNotFoundException('Walle JAR 复制失败: $e');
     }
-
-    return _walleJarFile!;
   }
 
   /// 检查 Walle JAR 是否存在
@@ -48,6 +86,38 @@ class WalleCommandDatasource {
     } catch (_) {
       return false;
     }
+  }
+
+  /// 检查环境是否就绪
+  Future<EnvironmentStatus> checkEnvironment() async {
+    final status = EnvironmentStatus();
+
+    // 检查 Java
+    try {
+      final java = await _getJavaExecutable();
+      final result = await Process.run(java.path, ['-version']);
+      if (result.exitCode == 0) {
+        final versionOutput = result.stderr.toString() +
+                              result.stdout.toString();
+        status.javaInstalled = true;
+        status.javaVersion = _parseJavaVersion(versionOutput);
+        status.javaPath = java.path;
+      }
+    } catch (_) {
+      status.javaInstalled = false;
+    }
+
+    // 检查 Walle JAR（总是存在，因为已打包）
+    try {
+      final jarFile = await getWalleJarFile();
+      status.walleJarExists = true;
+      status.walleJarPath = jarFile.path;
+    } catch (_) {
+      status.walleJarExists = false;
+    }
+
+    status.isReady = status.javaInstalled;
+    return status;
   }
 
   /// 执行渠道打包命令
@@ -62,6 +132,11 @@ class WalleCommandDatasource {
     List<String> channels, {
     void Function(String channel, int current, int total)? onProgress,
   }) async {
+    debugPrint('=== 开始批量打包 ===');
+    debugPrint('APK: $apkPath');
+    debugPrint('输出目录: $outputDir');
+    debugPrint('渠道列表: $channels');
+
     if (!(await File(apkPath).exists())) {
       throw ApkNotFoundException('APK 文件不存在: $apkPath');
     }
@@ -71,6 +146,10 @@ class WalleCommandDatasource {
     }
 
     final jarFile = await getWalleJarFile();
+    final java = await _getJavaExecutable();
+    debugPrint('Java: ${java.path}');
+    debugPrint('Walle JAR: ${jarFile.path}');
+
     final outputDirectory = Directory(outputDir);
     if (!(await outputDirectory.exists())) {
       await outputDirectory.create(recursive: true);
@@ -87,10 +166,14 @@ class WalleCommandDatasource {
           '${p.basenameWithoutExtension(apkPath)}_$channel${p.extension(apkPath)}';
       final outputPath = p.join(outputDir, channelFileName);
 
+      debugPrint('处理渠道: $channel -> $outputPath');
+
       try {
-        await _putChannel(jarFile.path, apkPath, outputPath, channel);
+        await _putChannel(java.path, jarFile.path, apkPath, outputPath, channel);
         generatedFiles.add(outputPath);
+        debugPrint('✓ 渠道 $channel 打包成功');
       } catch (e) {
+        debugPrint('✗ 渠道 $channel 打包失败: $e');
         errors.add('$channel: $e');
       }
     }
@@ -99,32 +182,49 @@ class WalleCommandDatasource {
       throw ChannelPackException('部分渠道打包失败:\n${errors.join('\n')}');
     }
 
+    debugPrint('=== 批量打包完成，生成了 ${generatedFiles.length} 个文件 ===');
     return generatedFiles;
   }
 
   /// 单个渠道打包
   Future<void> _putChannel(
+    String javaPath,
     String jarPath,
     String apkPath,
     String outputPath,
     String channel,
   ) async {
-    final shell = Shell();
-
     // 构建命令: java -jar walle-cli-all.jar put --channel <channel> <apk> <output>
-    final result = await shell.run(
-      'java -jar "$jarPath" put --channel "$channel" "$apkPath" "$outputPath"',
-    );
+    final args = [
+      '-jar',
+      jarPath,
+      'put',
+      '--channel',
+      channel,
+      apkPath,
+      outputPath,
+    ];
 
-    // process_run 返回 ProcessResult 列表
-    final hasErrors = result.any((r) => r.exitCode != 0);
-    if (hasErrors) {
-      final errorText = result
-          .where((r) => r.exitCode != 0)
-          .map((r) => r.stderr.toString())
-          .where((s) => s.isNotEmpty)
-          .join('\n');
-      throw ChannelPackException('Walle 命令执行失败: $errorText');
+    debugPrint('执行命令: $javaPath ${args.join(' ')}');
+
+    final result = await Process.run(javaPath, args);
+
+    debugPrint('退出码: ${result.exitCode}');
+    if (result.stdout.toString().isNotEmpty) {
+      debugPrint('stdout: ${result.stdout}');
+    }
+    if (result.stderr.toString().isNotEmpty) {
+      debugPrint('stderr: ${result.stderr}');
+    }
+
+    if (result.exitCode != 0) {
+      final errorText = result.stderr.toString().trim();
+      final stdoutText = result.stdout.toString().trim();
+      throw ChannelPackException(
+        'Walle 命令执行失败\n'
+        '渠道: $channel\n'
+        '${errorText.isNotEmpty ? "错误: $errorText" : stdoutText}',
+      );
     }
   }
 
@@ -135,17 +235,19 @@ class WalleCommandDatasource {
     }
 
     final jarFile = await getWalleJarFile();
-    final shell = Shell();
+    final java = await _getJavaExecutable();
 
     // 获取渠道信息: java -jar walle-cli-all.jar show <apk>
-    final result = await shell.run(
-      'java -jar "${jarFile.path}" show "$apkPath"',
-    );
+    final args = [
+      '-jar',
+      jarFile.path,
+      'show',
+      apkPath,
+    ];
 
-    final infoText = result
-        .map((r) => r.stdout.toString())
-        .where((s) => s.isNotEmpty)
-        .join('\n');
+    final result = await Process.run(java.path, args);
+
+    final infoText = result.stdout.toString().trim();
 
     return ApkInfo(
       path: apkPath,
@@ -155,30 +257,35 @@ class WalleCommandDatasource {
     );
   }
 
-  /// 初始化 Walle（下载提示等）
+  /// 初始化 Walle
   Future<WalleInitResult> initWalle() async {
-    final exists = await isWalleJarExists();
-
-    if (exists) {
-      final jarFile = await getWalleJarFile();
-      return WalleInitResult(
-        isInstalled: true,
-        version: AppConstants.walleVersion,
-        path: jarFile.path,
-      );
-    }
-
-    final appDir = await getApplicationSupportDirectory();
-    final walleDir = Directory(p.join(appDir.path, 'walle'));
-    final targetPath = p.join(walleDir.path, 'walle-cli-all.jar');
-
+    final jarFile = await getWalleJarFile();
     return WalleInitResult(
-      isInstalled: false,
+      isInstalled: true,
       version: AppConstants.walleVersion,
-      path: targetPath,
-      downloadUrl: AppConstants.walleDownloadUrl,
+      path: jarFile.path,
     );
   }
+
+  /// 解析 Java 版本
+  String _parseJavaVersion(String output) {
+    final versionRegex = RegExp(r'version\s+"?(\d+\.\d+\.\d+[_\d]*)');
+    final match = versionRegex.firstMatch(output);
+    if (match != null) {
+      return match.group(1)!;
+    }
+    return 'unknown';
+  }
+}
+
+/// 环境状态
+class EnvironmentStatus {
+  bool isReady = false;
+  bool javaInstalled = false;
+  String? javaVersion;
+  String? javaPath;
+  bool walleJarExists = false;
+  String? walleJarPath;
 }
 
 /// APK 信息

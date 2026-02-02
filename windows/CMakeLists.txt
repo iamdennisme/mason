@@ -106,3 +106,16 @@ install(DIRECTORY "${PROJECT_BUILD_DIR}/${FLUTTER_ASSET_DIR_NAME}"
 install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   CONFIGURATIONS Profile;Release
   COMPONENT Runtime)
+
+# === JRE Bundle for Windows ===
+# Copy Windows JRE next to the executable
+set(JRE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/runner/jre")
+if(EXISTS "${JRE_SOURCE_DIR}")
+  install(DIRECTORY "${JRE_SOURCE_DIR}"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}/jre"
+    COMPONENT Runtime
+    USE_SOURCE_PERMISSIONS)
+  message(STATUS "JRE will be bundled: ${CMAKE_INSTALL_PREFIX}/jre")
+else()
+  message(WARNING "JRE source directory not found: ${JRE_SOURCE_DIR}")
+endif()
