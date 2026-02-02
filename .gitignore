@@ -56,3 +56,14 @@ macos/Flutter/GeneratedPluginRegistrant.swift
 windows/flutter/generated_plugin_registrant.cc
 windows/flutter/generated_plugin_registrant.h
 windows/flutter/generated_plugins.cmake
+
+# Generated installers (large binary files)
+installers/
+*.exe
+*.zip
+*.msi
+
+# Temporary files
+tmpclaude-*/
+scripts/tmpclaude-*/
+windows/installer/tmpclaude-*/
