@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import '../../data/repositories/channel_pack_repository.dart';
+import '../../data/datasources/walle_command_datasource.dart';
 import '../../domain/entities/channel_pack_task.dart';
 import '../../domain/repositories/channel_pack_repository.dart' as domain;
 import '../../../../core/constants/app_constants.dart';
@@ -178,11 +179,16 @@ class PackNotifier extends ChangeNotifier {
   /// 开始打包
   Future<void> startPack({
     required String apkPath,
-    required String outputDir,
+    required String? outputDir,
     required List<String> channels,
   }) async {
     if (channels.isEmpty) {
       _ref.read(packStateProvider.notifier).setFailed('请至少选择一个渠道');
+      return;
+    }
+
+    if (outputDir == null) {
+      _ref.read(packStateProvider.notifier).setFailed('请选择输出目录');
       return;
     }
 
@@ -252,3 +258,9 @@ final apkInfoProvider = FutureProvider.family<domain.ApkInfoEntity, String>(
     return await repository.getApkInfo(path);
   },
 );
+
+/// 环境状态提供者
+final environmentProvider = FutureProvider<EnvironmentStatus>((ref) async {
+  final datasource = WalleCommandDatasource.instance;
+  return await datasource.checkEnvironment();
+});

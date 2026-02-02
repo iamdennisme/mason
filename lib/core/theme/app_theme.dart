@@ -212,6 +212,17 @@ class AppTheme {
         ),
         behavior: SnackBarBehavior.floating,
       ),
+
+      // 滚动条主题
+      scrollbarTheme: ScrollbarThemeData(
+        thumbColor: WidgetStateProperty.all(AppColors.surfaceVariant),
+        trackColor: WidgetStateProperty.all(AppColors.surfaceVariant.withValues(alpha: 0.3)),
+        trackBorderColor: WidgetStateProperty.all(Colors.transparent),
+        thickness: WidgetStateProperty.all(6),
+        radius: const Radius.circular(3),
+        crossAxisMargin: 4,
+        mainAxisMargin: 4,
+      ),
     );
   }
 
