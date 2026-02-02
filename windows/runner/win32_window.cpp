@@ -2,7 +2,6 @@
 
 #include <dwmapi.h>
 #include <flutter_windows.h>
-#include <windowsx.h>
 
 #include "resource.h"
 
@@ -137,7 +136,7 @@ bool Win32Window::Create(const std::wstring& title,
 
   HWND window = CreateWindow(
       window_class, title.c_str(),
-      WS_POPUP | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,  // Borderless window
+      WS_OVERLAPPEDWINDOW,  // Standard window with frame and title bar
       Scale(origin.x, scale_factor), Scale(origin.y, scale_factor),
       Scale(size.width, scale_factor), Scale(size.height, scale_factor),
       nullptr, nullptr, GetModuleHandle(nullptr), this);
@@ -218,51 +217,6 @@ Win32Window::MessageHandler(HWND hwnd,
     case WM_DWMCOLORIZATIONCOLORCHANGED:
       UpdateTheme(hwnd);
       return 0;
-
-    // Support for dragging and resizing borderless window
-    case WM_NCHITTEST: {
-      LRESULT result = 0;
-      if (DwmDefWindowProc(hwnd, message, wparam, lparam, &result)) {
-        return result;
-      }
-
-      const POINT cursor_pos = {GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
-      RECT window_rect;
-      GetWindowRect(hwnd, &window_rect);
-
-      // Edge detection threshold (DPI-aware)
-      UINT dpi = FlutterDesktopGetDpiForMonitor(
-          MonitorFromPoint(cursor_pos, MONITOR_DEFAULTTONEAREST));
-      const int border = static_cast<int>(8 * dpi / 96.0);
-
-      // Check if cursor is on window edges for resizing
-      bool on_left = cursor_pos.x < window_rect.left + border;
-      bool on_right = cursor_pos.x > window_rect.right - border;
-      bool on_top = cursor_pos.y < window_rect.top + border;
-      bool on_bottom = cursor_pos.y > window_rect.bottom - border;
-
-      if (on_top && on_left) return HTTOPLEFT;
-      if (on_top && on_right) return HTTOPRIGHT;
-      if (on_bottom && on_left) return HTBOTTOMLEFT;
-      if (on_bottom && on_right) return HTBOTTOMRIGHT;
-      if (on_left) return HTLEFT;
-      if (on_right) return HTRIGHT;
-      if (on_top) return HTTOP;
-      if (on_bottom) return HTBOTTOM;
-
-      // Title bar area (top section)
-      RECT client_rect;
-      GetClientRect(hwnd, &client_rect);
-      POINT client_cursor = cursor_pos;
-      ScreenToClient(hwnd, &client_cursor);
-
-      const int title_bar_height = static_cast<int>(32 * dpi / 96.0);
-      if (client_cursor.y < title_bar_height) {
-        return HTCAPTION;
-      }
-
-      return HTCLIENT;
-    }
   }
 
   return DefWindowProc(window_handle_, message, wparam, lparam);
@@ -333,7 +287,9 @@ void Win32Window::UpdateTheme(HWND const window) {
                           &enable_dark_mode, sizeof(enable_dark_mode));
   }
 
-  // Extend client area to the entire window to remove borders
-  MARGINS margins = {1, 1, 1, 1};
+  // Extend the client area into the frame to remove the separator line
+  // This extends the glass/frame into the client area, making the title bar
+  // and content seamless
+  MARGINS margins = {0, 0, 0, 0};  // Extend all margins to 0 (full window)
   DwmExtendFrameIntoClientArea(window, &margins);
 }
