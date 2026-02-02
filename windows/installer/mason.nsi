@@ -15,6 +15,15 @@ RequestExecutionLevel admin
 ; Use modern UI
 !include "MUI2.nsh"
 
+; DPI awareness support - fix blur on high DPI screens
+!include "FileFunc.nsh"
+!include "WinVer.nsh"
+
+; Reserve files for proper resource ordering
+!insertmacro MUI_RESERVEFILE_LANGDLL
+ReserveFile "${NSISDIR}\Plugins\x86-unicode\Banner.dll"
+ReserveFile "${NSISDIR}\Plugins\x86-unicode\AdvSplash.dll"
+
 ; Interface settings
 !define MUI_ABORTWARNING
 !define MUI_ICON "..\runner\resources\app_icon.ico"
@@ -108,6 +117,9 @@ SectionEnd
 
 ; Functions
 Function .onInit
+  ; Set DPI awareness to fix blur on high DPI screens
+  System::Call 'user32::SetProcessDPIAware()'
+
   ; Check if already installed
   ReadRegStr $R0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}" "UninstallString"
   StrCmp $R0 "" done
@@ -127,6 +139,9 @@ Function .onInit
 FunctionEnd
 
 Function un.onInit
+  ; Set DPI awareness to fix blur on high DPI screens
+  System::Call 'user32::SetProcessDPIAware()'
+
   MessageBox MB_YESNO "Do you really want to uninstall ${APPNAME}?" IDYES No
   Abort
   No:
