@@ -1,0 +1,102 @@
+name: Build Windows Installer
+
+on:
+  push:
+    branches:
+      - master
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.5'
+          channel: 'stable'
+          cache: true
+
+      - name: Flutter version
+        run: flutter --version
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build Windows application
+        run: flutter build windows --release
+
+      - name: Verify JRE in build
+        shell: pwsh
+        run: |
+          Write-Host "Checking build directory structure..."
+          Get-ChildItem -Path "build\windows\x64\runner\Release" -Recurse -Directory | Select-Object -First 20 FullName
+          if (Test-Path "build\windows\x64\runner\Release\jre\bin\java.exe") {
+            Write-Host "✓ JRE found at correct location"
+          } else {
+            Write-Host "✗ JRE not found, checking alternative locations..."
+            Get-ChildItem -Path "build\windows\x64\runner\Release" -Filter "java.exe" -Recurse | Select-Object FullName
+            exit 1
+          }
+
+      - name: Install NSIS
+        run: |
+          choco install nsis -y
+          echo "$env:ProgramFiles(x86)\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Verify NSIS installation
+        run: makensis /VERSION
+
+      - name: Build installer with NSIS
+        shell: pwsh
+        run: |
+          cd windows\installer
+          makensis mason.nsi
+          if (Test-Path "..\..\installers\mason-setup-1.0.0.exe") {
+            Write-Host "✓ Installer created successfully"
+            Get-Item "..\..\installers\mason-setup-1.0.0.exe" | Select-Object Name, Length
+          } else {
+            Write-Host "✗ Installer not found"
+            exit 1
+          }
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mason-windows-installer
+          path: installers/mason-setup-*.exe
+          retention-days: 30
+
+      - name: Create portable zip
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        run: |
+          cd build\windows\x64\runner\Release
+          7z a -tzip ..\..\..\..\..\installers\Mason-portable-windows-x64-v1.0.0.zip .
+
+      - name: Upload portable zip artifact
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: mason-windows-portable
+          path: installers/Mason-portable-windows-x64-*.zip
+          retention-days: 30
+
+      - name: Release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            installers/mason-setup-*.exe
+            installers/Mason-portable-windows-x64-*.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
