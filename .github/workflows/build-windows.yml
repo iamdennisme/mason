@@ -57,7 +57,7 @@ jobs:
 
       - name: Verify NSIS installation
         shell: pwsh
-        run: &"$env:ProgramFiles(x86)\NSIS\makensis.exe" /VERSION
+        run: '&"$env:ProgramFiles(x86)\NSIS\makensis.exe" /VERSION'
 
       - name: Build installer with NSIS
         shell: pwsh
