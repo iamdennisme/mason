@@ -1,8 +1,13 @@
 ; Mason Installer Script for NSIS
 ; Requires NSIS 3.0 or later
+; Usage: makensis /DAPP_VERSION=1.0.0 mason.nsi
 
 !define APPNAME "Mason"
-!define VERSION "1.0.0"
+; 从命令行获取版本号，如果未定义则使用默认值
+!ifndef APP_VERSION
+  !define APP_VERSION "1.0.0"
+!endif
+!define VERSION "${APP_VERSION}"
 !define PUBLISHER "tech.taicheng.mason"
 
 ; General settings

@@ -112,20 +112,12 @@ jobs:
           & $javaPath -version 2>&1 | Select-Object -First 1
           Write-Host "✓ JRE 验证通过"
 
-      - name: 安装 NSIS
+      - name: 安装 Inno Setup
         shell: pwsh
         run: |
-          Write-Host "安装 NSIS..."
-          choco install nsis -y
-          $nsisPath = "${env:ProgramFiles(x86)}\NSIS"
-          Write-Host "✓ NSIS 已安装到: $nsisPath"
-          echo "NSIS_PATH=$nsisPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: 验证 NSIS
-        shell: pwsh
-        run: |
-          &"${env:ProgramFiles(x86)}\NSIS\makensis.exe" /VERSION
-          Write-Host "✓ NSIS 验证通过"
+          Write-Host "安装 Inno Setup..."
+          choco install innosetup -y
+          Write-Host "✓ Inno Setup 已安装"
 
       - name: 创建安装程序
         shell: pwsh
@@ -133,10 +125,13 @@ jobs:
           $version = "${{ needs.extract-version.outputs.version }}"
           Write-Host "开始创建安装程序 (版本: $version)..."
 
-          cd windows\installer
-          &"${env:ProgramFiles(x86)}\NSIS\makensis.exe" mason.nsi
+          # 确保输出目录存在
+          New-Item -ItemType Directory -Force -Path "installers"
 
-          $installerPath = "..\..\installers\mason-setup-$version.exe"
+          # 使用 Inno Setup 创建安装程序
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DAPP_VERSION=$version tools\mason_installer.iss
+
+          $installerPath = "installers\Mason-setup-$version.exe"
           if (-not (Test-Path $installerPath)) {
             Write-Error "安装程序创建失败"
             exit 1
