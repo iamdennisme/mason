@@ -28,8 +28,6 @@ SolidCompression=yes
 WizardStyle=modern
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64compatible
-; 修复高 DPI 显示问题
-SignTool=none
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
