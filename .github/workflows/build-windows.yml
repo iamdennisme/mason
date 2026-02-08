@@ -78,12 +78,16 @@ jobs:
           name: mason-windows-installer
           path: installers/mason-setup-*.exe
           retention-days: 30
+          if-no-files-found: error
 
       - name: Create portable zip
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
         run: |
-          cd build\windows\x64\runner\Release
-          7z a -tzip ..\..\..\..\..\installers\Mason-portable-windows-x64-v1.0.0.zip .
+          New-Item -ItemType Directory -Force -Path "installers"
+          Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath "installers\Mason-portable-windows-x64-v1.0.0.zip" -Force
+          Write-Host "✓ Portable zip created"
+          Get-Item "installers\Mason-portable-windows-x64-v1.0.0.zip" | Select-Object Name, Length
 
       - name: Upload portable zip artifact
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
@@ -92,6 +96,7 @@ jobs:
           name: mason-windows-portable
           path: installers/Mason-portable-windows-x64-*.zip
           retention-days: 30
+          if-no-files-found: error
 
       - name: Release
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
