@@ -10,101 +10,229 @@ on:
     branches:
       - master
   workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号 (例如: 1.0.0)'
+        required: false
+        type: string
+
+env:
+  FLUTTER_VERSION: '3.27.3'
 
 jobs:
-  build:
+  # 版本号提取任务
+  extract-version:
+    name: 提取版本号
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      semver: ${{ steps.version.outputs.semver }}
+      buildNumber: ${{ steps.version.outputs.buildNumber }}
+    steps:
+      - name: Checkout 代码
+        uses: actions/checkout@v4
+
+      - name: 提取版本号
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            # 手动触发，使用输入的版本号
+            VERSION="${{ github.event.inputs.version }}"
+            BUILD_NUMBER="${{ github.run_number }}"
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            # 从 tag 中提取版本号 (v1.0.0 -> 1.0.0)
+            VERSION=${GITHUB_REF#refs/tags/v}
+            BUILD_NUMBER="${{ github.run_number }}"
+          else
+            # 推送到 master 分支或 PR，从 pubspec.yaml 读取版本号
+            VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: *//' | sed 's/+.*//')
+            BUILD_NUMBER="${{ github.run_number }}"
+          fi
+
+          # 验证版本号格式
+          if ! [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "错误: 版本号格式应为 x.y.z"
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "semver=v$VERSION" >> $GITHUB_OUTPUT
+          echo "buildNumber=$BUILD_NUMBER" >> $GITHUB_OUTPUT
+          echo "版本号: $VERSION"
+          echo "构建号: $BUILD_NUMBER"
+
+  # Windows 构建
+  windows:
+    name: Windows (x64)
+    needs: extract-version
     runs-on: windows-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout 代码
         uses: actions/checkout@v4
 
-      - name: Setup Flutter
+      - name: 设置 Flutter
         uses: subosito/flutter-action@v2
         with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: 'stable'
           cache: true
+          cache-key: 'flutter-${{ runner.os }}-${{ env.FLUTTER_VERSION }}'
 
-      - name: Flutter version
+      - name: Flutter 版本信息
         run: flutter --version
 
-      - name: Install dependencies
+      - name: 获取依赖
         run: flutter pub get
 
-      - name: Build Windows application
+      - name: 构建 Windows Release
         run: flutter build windows --release
 
-      - name: Verify JRE in build
+      - name: 验证构建产物
         shell: pwsh
         run: |
-          Write-Host "Checking build directory structure..."
-          Get-ChildItem -Path "build\windows\x64\runner\Release" -Recurse -Directory | Select-Object -First 20 FullName
-          if (Test-Path "build\windows\x64\runner\Release\jre\bin\java.exe") {
-            Write-Host "✓ JRE found at correct location"
-          } else {
-            Write-Host "✗ JRE not found, checking alternative locations..."
-            Get-ChildItem -Path "build\windows\x64\runner\Release" -Filter "java.exe" -Recurse | Select-Object FullName
+          Write-Host "验证构建产物..."
+          $exePath = "build\windows\x64\runner\Release\mason.exe"
+          if (-not (Test-Path $exePath)) {
+            Write-Error "构建失败: mason.exe 不存在"
             exit 1
           }
+          $file = Get-Item $exePath
+          Write-Host "✓ mason.exe 存在"
+          Write-Host "  大小: $([math]::Round($file.Length / 1MB, 2)) MB"
 
-      - name: Install NSIS
+          # 验证 JRE
+          Write-Host "`n验证 JRE..."
+          $javaPath = "build\windows\x64\runner\Release\jre\bin\java.exe"
+          if (-not (Test-Path $javaPath)) {
+            Write-Error "JRE 未找到，请检查 CMakeLists.txt 配置"
+            exit 1
+          }
+          $javaFile = Get-Item $javaPath
+          & $javaPath -version 2>&1 | Select-Object -First 1
+          Write-Host "✓ JRE 验证通过"
+
+      - name: 安装 NSIS
         shell: pwsh
         run: |
+          Write-Host "安装 NSIS..."
           choco install nsis -y
           $nsisPath = "${env:ProgramFiles(x86)}\NSIS"
-          Write-Host "NSIS installed at: $nsisPath"
+          Write-Host "✓ NSIS 已安装到: $nsisPath"
           echo "NSIS_PATH=$nsisPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Verify NSIS installation
-        shell: pwsh
-        run: '&"${env:ProgramFiles(x86)}\NSIS\makensis.exe" /VERSION'
-
-      - name: Build installer with NSIS
+      - name: 验证 NSIS
         shell: pwsh
         run: |
+          &"${env:ProgramFiles(x86)}\NSIS\makensis.exe" /VERSION
+          Write-Host "✓ NSIS 验证通过"
+
+      - name: 创建安装程序
+        shell: pwsh
+        run: |
+          $version = "${{ needs.extract-version.outputs.version }}"
+          Write-Host "开始创建安装程序 (版本: $version)..."
+
           cd windows\installer
           &"${env:ProgramFiles(x86)}\NSIS\makensis.exe" mason.nsi
-          if (Test-Path "..\..\installers\mason-setup-1.0.0.exe") {
-            Write-Host "✓ Installer created successfully"
-            Get-Item "..\..\installers\mason-setup-1.0.0.exe" | Select-Object Name, Length
-          } else {
-            Write-Host "✗ Installer not found"
+
+          $installerPath = "..\..\installers\mason-setup-$version.exe"
+          if (-not (Test-Path $installerPath)) {
+            Write-Error "安装程序创建失败"
             exit 1
           }
 
-      - name: Upload installer artifact
+          $file = Get-Item $installerPath
+          Write-Host "✓ 安装程序创建成功"
+          Write-Host "  文件: $($file.Name)"
+          Write-Host "  大小: $([math]::Round($file.Length / 1MB, 2)) MB"
+
+      - name: 上传构建产物
         uses: actions/upload-artifact@v4
         with:
-          name: mason-windows-installer
-          path: installers/mason-setup-*.exe
+          name: Mason-Setup-${{ needs.extract-version.outputs.version }}
+          path: installers/mason-setup-${{ needs.extract-version.outputs.version }}.exe
           retention-days: 30
           if-no-files-found: error
 
-      - name: Create portable zip
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+      - name: 创建便携版 ZIP
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path "installers"
-          Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath "installers\Mason-portable-windows-x64-v1.0.0.zip" -Force
-          Write-Host "✓ Portable zip created"
-          Get-Item "installers\Mason-portable-windows-x64-v1.0.0.zip" | Select-Object Name, Length
+          $version = "${{ needs.extract-version.outputs.version }}"
+          Write-Host "创建便携版 ZIP..."
 
-      - name: Upload portable zip artifact
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+          New-Item -ItemType Directory -Force -Path "installers"
+          Compress-Archive -Path "build\windows\x64\runner\Release\*" `
+                          -DestinationPath "installers\Mason-portable-windows-x64-v$version.zip" `
+                          -Force
+
+          $zipFile = Get-Item "installers\Mason-portable-windows-x64-v$version.zip"
+          Write-Host "✓ 便携版创建成功"
+          Write-Host "  大小: $([math]::Round($zipFile.Length / 1MB, 2)) MB"
+
+      - name: 上传便携版
         uses: actions/upload-artifact@v4
         with:
-          name: mason-windows-portable
-          path: installers/Mason-portable-windows-x64-*.zip
+          name: Mason-Portable-${{ needs.extract-version.outputs.version }}
+          path: installers/Mason-portable-windows-x64-v${{ needs.extract-version.outputs.version }}.zip
           retention-days: 30
           if-no-files-found: error
 
-      - name: Release
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v1
+  # 创建 GitHub Release
+  release:
+    name: 创建 Release
+    needs: [extract-version, windows]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+
+    steps:
+      - name: 下载所有构建产物
+        uses: actions/download-artifact@v4
         with:
+          path: artifacts
+
+      - name: 显示文件列表
+        run: |
+          echo "构建产物:"
+          find artifacts -type f -exec ls -lh {} \;
+
+      - name: 创建 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.extract-version.outputs.semver }}
+          name: Mason ${{ needs.extract-version.outputs.version }}
+          body: |
+            ## 🚀 Mason ${{ needs.extract-version.outputs.version }}
+
+            下载适合您平台的安装包：
+
+            ### 📦 安装包
+
+            | 文件 | 说明 |
+            |------|------|
+            | `Mason-Setup-${{ needs.extract-version.outputs.version }}.exe` | Windows 安装程序 (x64) |
+            | `Mason-portable-windows-x64-v${{ needs.extract-version.outputs.version }}.zip` | 便携版（无需安装） |
+
+            ### ✨ 更新内容
+
+            <!-- 请在此处添加更新日志 -->
+
+            ---
+
+            **系统要求**:
+            - Windows 10 或更高版本 (x64)
+
+            **注意事项**:
+            - ⚠️ 安装程序未进行代码签名，可能会遇到 SmartScreen 警告，请点击"更多信息" → "仍要运行"
+            - ✅ 内嵌 JRE，无需单独安装 Java 环境
+
           files: |
-            installers/mason-setup-*.exe
-            installers/Mason-portable-windows-x64-*.zip
-          generate_release_notes: true
+            artifacts/Mason-Setup-*/mason-setup-*.exe
+            artifacts/Mason-Portable-*/Mason-portable-*.zip
+          draft: true
+          prerelease: false
+          generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
