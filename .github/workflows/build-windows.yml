@@ -48,18 +48,22 @@ jobs:
           }
 
       - name: Install NSIS
+        shell: pwsh
         run: |
           choco install nsis -y
-          echo "$env:ProgramFiles(x86)\NSIS" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          $nsisPath = "$env:ProgramFiles(x86)\NSIS"
+          echo "NSIS_PATH=$nsisPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          echo "$nsisPath" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Verify NSIS installation
-        run: makensis /VERSION
+        shell: pwsh
+        run: &"$env:ProgramFiles(x86)\NSIS\makensis.exe" /VERSION
 
       - name: Build installer with NSIS
         shell: pwsh
         run: |
           cd windows\installer
-          makensis mason.nsi
+          &"$env:ProgramFiles(x86)\NSIS\makensis.exe" mason.nsi
           if (Test-Path "..\..\installers\mason-setup-1.0.0.exe") {
             Write-Host "✓ Installer created successfully"
             Get-Item "..\..\installers\mason-setup-1.0.0.exe" | Select-Object Name, Length
