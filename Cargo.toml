@@ -1,0 +1,15 @@
+[package]
+name = "mason"
+version = "1.0.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0"
+iced = { version = "0.13", features = ["tokio"] }
+rfd = "0.15"
+sys-locale = "0.3"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

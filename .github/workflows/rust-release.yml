@@ -1,0 +1,344 @@
+name: Rust Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Download embedded JRE
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARCH="$(uname -m)"
+          case "$ARCH" in
+            arm64) JRE_ARCH="aarch64" ;;
+            x86_64) JRE_ARCH="x64" ;;
+            *) echo "Unsupported macOS architecture: $ARCH" >&2; exit 1 ;;
+          esac
+
+          rm -rf .jre-cache resources/jre
+          mkdir -p .jre-cache resources
+          curl -L --fail --retry 3 -o .jre-cache/jre.tar.gz \
+            "https://api.adoptium.net/v3/binary/latest/17/ga/mac/${JRE_ARCH}/jre/hotspot/normal/eclipse?project=jdk"
+          tar -xzf .jre-cache/jre.tar.gz -C .jre-cache
+
+          JRE_HOME="$(find .jre-cache -type d -path '*/Contents/Home' | head -n 1)"
+          if [ -z "${JRE_HOME}" ]; then
+            echo "Failed to locate extracted JRE home on macOS" >&2
+            exit 1
+          fi
+
+          mkdir -p resources/jre
+          cp -R "${JRE_HOME}/." resources/jre/
+
+      - name: Build binary
+        run: cargo build --release
+
+      - name: Package app and dmg
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          APP_DIR="dist/Mason.app"
+          BIN_PATH="target/release/mason"
+
+          mkdir -p "$APP_DIR/Contents/MacOS"
+          mkdir -p "$APP_DIR/Contents/Resources/walle"
+
+          cp "$BIN_PATH" "$APP_DIR/Contents/MacOS/mason"
+          chmod +x "$APP_DIR/Contents/MacOS/mason"
+
+          cp resources/walle/walle-cli-all.jar "$APP_DIR/Contents/Resources/walle/walle-cli-all.jar"
+          cp -R resources/jre "$APP_DIR/Contents/Resources/jre"
+
+          cat > "$APP_DIR/Contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleDevelopmentRegion</key>
+            <string>en</string>
+            <key>CFBundleExecutable</key>
+            <string>mason</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.taicheng.mason</string>
+            <key>CFBundleInfoDictionaryVersion</key>
+            <string>6.0</string>
+            <key>CFBundleName</key>
+            <string>Mason</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>CFBundleShortVersionString</key>
+            <string>${VERSION}</string>
+            <key>CFBundleVersion</key>
+            <string>${VERSION}</string>
+          </dict>
+          </plist>
+          PLIST
+
+          DMG_PATH="dist/Mason-${VERSION}-macos.dmg"
+          hdiutil create -volname "Mason" -srcfolder "$APP_DIR" -ov -format UDZO "$DMG_PATH"
+
+          shasum -a 256 "$DMG_PATH" > "$DMG_PATH.sha256"
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mason-macos
+          path: |
+            dist/Mason-*-macos.dmg
+            dist/Mason-*-macos.dmg.sha256
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Download embedded JRE
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .jre-cache resources/jre
+          mkdir -p .jre-cache resources
+          curl -L --fail --retry 3 -o .jre-cache/jre.tar.gz \
+            "https://api.adoptium.net/v3/binary/latest/17/ga/linux/x64/jre/hotspot/normal/eclipse?project=jdk"
+          tar -xzf .jre-cache/jre.tar.gz -C .jre-cache
+
+          JRE_ROOT="$(find .jre-cache -maxdepth 2 -type d -name 'jdk-*-jre*' | head -n 1)"
+          if [ -z "${JRE_ROOT}" ]; then
+            echo "Failed to locate extracted JRE root on Linux" >&2
+            exit 1
+          fi
+
+          mkdir -p resources/jre
+          cp -R "${JRE_ROOT}/." resources/jre/
+
+      - name: Install packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            dpkg-dev fakeroot desktop-file-utils curl \
+            pkg-config libx11-dev libxrandr-dev libxi-dev libxinerama-dev \
+            libxcursor-dev libxkbcommon-dev libwayland-dev libegl1-mesa-dev \
+            libgl1-mesa-dev libasound2-dev
+
+      - name: Build binary
+        run: cargo build --release
+
+      - name: Build AppImage and deb
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p dist
+
+          APPDIR="dist/Mason.AppDir"
+          mkdir -p "$APPDIR/usr/bin/resources/walle"
+          mkdir -p "$APPDIR/usr/share/applications"
+          mkdir -p "$APPDIR/usr/share/icons/hicolor/256x256/apps"
+
+          cp target/release/mason "$APPDIR/usr/bin/mason"
+          chmod +x "$APPDIR/usr/bin/mason"
+
+          cp resources/walle/walle-cli-all.jar "$APPDIR/usr/bin/resources/walle/walle-cli-all.jar"
+          cp -R resources/jre "$APPDIR/usr/bin/resources/jre"
+
+          cat > "$APPDIR/AppRun" <<'APP_RUN'
+          #!/bin/sh
+          HERE="$(dirname "$(readlink -f "$0")")"
+          exec "$HERE/usr/bin/mason" "$@"
+          APP_RUN
+          chmod +x "$APPDIR/AppRun"
+
+          cat > "$APPDIR/usr/share/applications/mason.desktop" <<'DESKTOP'
+          [Desktop Entry]
+          Type=Application
+          Name=Mason
+          Exec=mason
+          Icon=mason
+          Categories=Development;
+          Terminal=false
+          DESKTOP
+
+          cp resources/icons/mason.png "$APPDIR/usr/share/icons/hicolor/256x256/apps/mason.png"
+          ln -sf usr/share/icons/hicolor/256x256/apps/mason.png "$APPDIR/mason.png"
+          ln -sf usr/share/applications/mason.desktop "$APPDIR/mason.desktop"
+
+          curl -L -o dist/appimagetool.AppImage \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x dist/appimagetool.AppImage
+
+          APPIMAGE_PATH="dist/Mason-${VERSION}-linux-x86_64.AppImage"
+          APPIMAGE_EXTRACT_AND_RUN=1 ARCH=x86_64 ./dist/appimagetool.AppImage "$APPDIR" "$APPIMAGE_PATH"
+
+          DEBROOT="dist/deb-root"
+          mkdir -p "$DEBROOT/DEBIAN"
+          mkdir -p "$DEBROOT/opt/mason/resources/walle"
+          mkdir -p "$DEBROOT/usr/bin"
+
+          cp target/release/mason "$DEBROOT/opt/mason/mason"
+          chmod +x "$DEBROOT/opt/mason/mason"
+
+          cp resources/walle/walle-cli-all.jar "$DEBROOT/opt/mason/resources/walle/walle-cli-all.jar"
+          cp -R resources/jre "$DEBROOT/opt/mason/resources/jre"
+
+          cat > "$DEBROOT/usr/bin/mason" <<'WRAPPER'
+          #!/bin/sh
+          exec /opt/mason/mason "$@"
+          WRAPPER
+          chmod +x "$DEBROOT/usr/bin/mason"
+
+          INSTALLED_SIZE="$(du -s "$DEBROOT/opt/mason" | awk '{print $1}')"
+          cat > "$DEBROOT/DEBIAN/control" <<CONTROL
+          Package: mason
+          Version: ${VERSION}
+          Section: utils
+          Priority: optional
+          Architecture: amd64
+          Maintainer: Mason Team <noreply@example.com>
+          Installed-Size: ${INSTALLED_SIZE}
+          Description: Android channel pack tool with embedded JRE and Walle
+          CONTROL
+
+          DEB_PATH="dist/Mason-${VERSION}-linux-amd64.deb"
+          dpkg-deb --build "$DEBROOT" "$DEB_PATH"
+
+          sha256sum "$APPIMAGE_PATH" "$DEB_PATH" > dist/Mason-${VERSION}-linux-sha256.txt
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mason-linux
+          path: |
+            dist/Mason-*-linux-x86_64.AppImage
+            dist/Mason-*-linux-amd64.deb
+            dist/Mason-*-linux-sha256.txt
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Download embedded JRE
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Remove-Item -Recurse -Force '.jre-cache','resources\jre' -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path '.jre-cache' | Out-Null
+          New-Item -ItemType Directory -Force -Path 'resources' | Out-Null
+
+          $url = 'https://api.adoptium.net/v3/binary/latest/17/ga/windows/x64/jre/hotspot/normal/eclipse?project=jdk'
+          $archive = '.jre-cache\jre.zip'
+          Invoke-WebRequest -Uri $url -OutFile $archive
+          Expand-Archive -Path $archive -DestinationPath '.jre-cache\extracted' -Force
+
+          $jreRoot = Get-ChildItem '.jre-cache\extracted' -Directory |
+            Where-Object { Test-Path (Join-Path $_.FullName 'bin\java.exe') } |
+            Select-Object -First 1
+          if (-not $jreRoot) {
+            throw 'Failed to locate extracted JRE root on Windows'
+          }
+
+          New-Item -ItemType Directory -Force -Path 'resources\jre' | Out-Null
+          Copy-Item -Recurse (Join-Path $jreRoot.FullName '*') 'resources\jre' -Force
+
+      - name: Build binary
+        shell: powershell
+        run: cargo build --release
+
+      - name: Build portable and NSIS installer
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $version = $env:GITHUB_REF_NAME -replace '^v', ''
+
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $appDir = Join-Path $pwd 'dist\Mason'
+          New-Item -ItemType Directory -Force -Path $appDir | Out-Null
+          New-Item -ItemType Directory -Force -Path (Join-Path $appDir 'resources\walle') | Out-Null
+          New-Item -ItemType Directory -Force -Path (Join-Path $appDir 'resources\jre') | Out-Null
+
+          Copy-Item 'target\release\mason.exe' (Join-Path $appDir 'mason.exe') -Force
+          Copy-Item 'resources\walle\walle-cli-all.jar' (Join-Path $appDir 'resources\walle\walle-cli-all.jar') -Force
+          Copy-Item -Recurse (Join-Path $pwd 'resources\jre\*') (Join-Path $appDir 'resources\jre') -Force
+
+          $portableZip = Join-Path $pwd "dist\Mason-$version-windows-portable.zip"
+          if (Test-Path $portableZip) { Remove-Item $portableZip -Force }
+          Compress-Archive -Path (Join-Path $appDir '*') -DestinationPath $portableZip -Force
+
+          choco install nsis -y --no-progress
+          $makensis = Join-Path ${env:ProgramFiles(x86)} 'NSIS\makensis.exe'
+          if (-not (Test-Path $makensis)) {
+            throw "makensis not found: $makensis"
+          }
+
+          $installer = Join-Path $pwd "dist\Mason-$version-windows-setup.exe"
+          & $makensis "/DAPP_VERSION=$version" "/DAPP_DIR=$appDir" "/DOUT_FILE=$installer" "packaging\windows\mason.nsi"
+
+          Get-FileHash -Algorithm SHA256 $installer | ForEach-Object { "{0}  {1}" -f $_.Hash.ToLower(), [System.IO.Path]::GetFileName($_.Path) } |
+            Set-Content (Join-Path $pwd "dist\Mason-$version-windows-sha256.txt")
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mason-windows
+          path: |
+            dist/Mason-*-windows-setup.exe
+            dist/Mason-*-windows-portable.zip
+            dist/Mason-*-windows-sha256.txt
+
+  release:
+    needs:
+      - build-macos
+      - build-linux
+      - build-windows
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: mason-macos
+          path: release-artifacts/macos
+
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: mason-linux
+          path: release-artifacts/linux
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: mason-windows
+          path: release-artifacts/windows
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            release-artifacts/macos/*
+            release-artifacts/linux/*
+            release-artifacts/windows/*
