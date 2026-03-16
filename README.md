@@ -58,6 +58,16 @@ Windows：
 - Windows: `<exe_dir>/resources/jre/bin/java.exe`
 - Walle: `<resources>/walle/walle-cli-all.jar`
 
+## 图标资源
+
+- 主设计源：`resources/icons/mason-master.svg`
+- 导出产物：`mason-master-1024.png`、`mason.png`、`mason.icns`、`mason.ico`
+- 重新生成：
+
+```bash
+./scripts/generate_icons.sh
+```
+
 ## 发布构建（GitHub Actions）
 
 工作流：`.github/workflows/rust-release.yml`

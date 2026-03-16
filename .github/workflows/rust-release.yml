@@ -64,6 +64,7 @@ jobs:
 
           cp resources/walle/walle-cli-all.jar "$APP_DIR/Contents/Resources/walle/walle-cli-all.jar"
           cp -R resources/jre "$APP_DIR/Contents/Resources/jre"
+          cp resources/icons/mason.icns "$APP_DIR/Contents/Resources/mason.icns"
 
           cat > "$APP_DIR/Contents/Info.plist" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
@@ -80,6 +81,8 @@ jobs:
             <string>6.0</string>
             <key>CFBundleName</key>
             <string>Mason</string>
+            <key>CFBundleIconFile</key>
+            <string>mason.icns</string>
             <key>CFBundlePackageType</key>
             <string>APPL</string>
             <key>CFBundleShortVersionString</key>
@@ -279,10 +282,12 @@ jobs:
           New-Item -ItemType Directory -Force -Path $appDir | Out-Null
           New-Item -ItemType Directory -Force -Path (Join-Path $appDir 'resources\walle') | Out-Null
           New-Item -ItemType Directory -Force -Path (Join-Path $appDir 'resources\jre') | Out-Null
+          New-Item -ItemType Directory -Force -Path (Join-Path $appDir 'resources\icons') | Out-Null
 
           Copy-Item 'target\release\mason.exe' (Join-Path $appDir 'mason.exe') -Force
           Copy-Item 'resources\walle\walle-cli-all.jar' (Join-Path $appDir 'resources\walle\walle-cli-all.jar') -Force
           Copy-Item -Recurse (Join-Path $pwd 'resources\jre\*') (Join-Path $appDir 'resources\jre') -Force
+          Copy-Item 'resources\icons\mason.ico' (Join-Path $appDir 'resources\icons\mason.ico') -Force
 
           $portableZip = Join-Path $pwd "dist\Mason-$version-windows-portable.zip"
           if (Test-Path $portableZip) { Remove-Item $portableZip -Force }

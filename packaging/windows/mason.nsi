@@ -12,6 +12,10 @@
   !define OUT_FILE "Mason-setup.exe"
 !endif
 
+!define APP_ICON "${APP_DIR}\\resources\\icons\\mason.ico"
+!define MUI_ICON "${APP_ICON}"
+!define MUI_UNICON "${APP_ICON}"
+
 Name "Mason ${APP_VERSION}"
 OutFile "${OUT_FILE}"
 InstallDir "$PROGRAMFILES64\\Mason"
@@ -28,8 +32,8 @@ Section "Install"
   File /r "${APP_DIR}\\*.*"
 
   CreateDirectory "$SMPROGRAMS\\Mason"
-  CreateShortCut "$SMPROGRAMS\\Mason\\Mason.lnk" "$INSTDIR\\mason.exe"
-  CreateShortCut "$DESKTOP\\Mason.lnk" "$INSTDIR\\mason.exe"
+  CreateShortCut "$SMPROGRAMS\\Mason\\Mason.lnk" "$INSTDIR\\mason.exe" "" "$INSTDIR\\resources\\icons\\mason.ico" 0
+  CreateShortCut "$DESKTOP\\Mason.lnk" "$INSTDIR\\mason.exe" "" "$INSTDIR\\resources\\icons\\mason.ico" 0
 
   WriteUninstaller "$INSTDIR\\Uninstall.exe"
 

@@ -7,7 +7,10 @@ use crate::i18n::I18n;
 use crate::runtime::check_environment;
 use crate::state::{AppState, LogEntry, LogKind, PackRequest, WorkerEvent};
 use iced::widget::{button, column, container, row, scrollable, text, text_input};
-use iced::{application, window, Element, Font, Length, Subscription, Task, Theme};
+use iced::{
+    application, window, Background, Border, Color, Element, Font, Length, Shadow, Subscription,
+    Task, Theme, Vector,
+};
 use rfd::FileDialog;
 use std::collections::HashSet;
 use std::fs;
@@ -77,7 +80,14 @@ impl MasonApp {
     }
 
     fn theme(&self) -> Theme {
-        Theme::Dark
+        Theme::Light
+    }
+
+    fn localized<'a>(&self, zh: &'a str, en: &'a str) -> &'a str {
+        match self.i18n.locale() {
+            i18n::Locale::ZhCn => zh,
+            i18n::Locale::EnUs => en,
+        }
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
@@ -270,108 +280,252 @@ impl MasonApp {
             .as_ref()
             .map(|value| value.display().to_string())
             .unwrap_or_else(|| self.i18n.no_output().to_string());
+        let locale_text = match self.i18n.locale() {
+            i18n::Locale::ZhCn => "zh-CN",
+            i18n::Locale::EnUs => "en-US",
+        };
+        let runtime_ready = self.status_text == self.i18n.env_ready();
+        let runtime_style: fn(&Theme) -> container::Style = if runtime_ready {
+            style_status_ok_badge
+        } else {
+            style_status_warn_badge
+        };
+        let runtime_text = if runtime_ready {
+            self.localized("内置 JRE 已就绪", "Embedded JRE Ready")
+        } else {
+            self.localized("运行时缺失", "Runtime Missing")
+        };
 
-        let header = column![
-            text(self.i18n.app_title()).size(30),
-            text(self.i18n.subtitle()).size(16),
-            text(format!(
-                "Locale: {}",
-                match self.i18n.locale() {
-                    i18n::Locale::ZhCn => "zh-CN",
-                    i18n::Locale::EnUs => "en-US",
-                }
-            ))
-            .size(12)
-        ]
-        .spacing(4);
-
-        let file_controls = column![
+        let header = container(
             row![
-                button(self.i18n.select_apk()).on_press(Message::SelectApk),
-                text(apk_path).size(14)
-            ]
-            .spacing(12)
-            .align_y(iced::Alignment::Center),
-            row![
-                button(self.i18n.select_output()).on_press(Message::SelectOutputDir),
-                text(output_dir).size(14)
-            ]
-            .spacing(12)
-            .align_y(iced::Alignment::Center),
-        ]
-        .spacing(12);
-
-        let mut channels_list = column![];
-        for (index, channel) in self.state.channels.iter().enumerate() {
-            channels_list = channels_list.push(
-                row![
-                    text(format!("{}", index + 1)).size(12),
-                    text(channel).size(14).width(Length::Fill),
-                    button(self.i18n.delete_channel()).on_press(Message::RemoveChannel(index))
+                column![
+                    text(self.i18n.app_title())
+                        .size(34)
+                        .color(color_text_primary()),
+                    text(self.i18n.subtitle())
+                        .size(15)
+                        .color(color_text_secondary()),
+                ]
+                .spacing(4),
+                iced::widget::horizontal_space(),
+                column![
+                    container(
+                        text(format!(
+                            "{} {locale_text}",
+                            self.localized("语言", "Locale")
+                        ))
+                        .size(12)
+                        .color(color_text_secondary()),
+                    )
+                    .style(style_tag_badge)
+                    .padding([6, 10]),
+                    container(text(runtime_text).size(12).color(color_text_secondary()))
+                        .style(runtime_style)
+                        .padding([6, 10]),
                 ]
                 .spacing(8)
+                .align_x(iced::Alignment::End),
+            ]
+            .align_y(iced::Alignment::Center),
+        )
+        .style(style_header_card)
+        .padding([18, 20]);
+
+        let file_controls = container(
+            column![
+                text(self.localized("输入文件", "Input"))
+                    .size(17)
+                    .color(color_text_primary()),
+                row![
+                    button(text(self.i18n.select_apk()).size(13))
+                        .style(button_style(ButtonRole::Secondary))
+                        .padding([8, 12])
+                        .on_press(Message::SelectApk),
+                    container(text(apk_path).size(13).color(color_text_secondary()))
+                        .style(style_path_pill)
+                        .padding([8, 12])
+                        .width(Length::Fill),
+                ]
+                .spacing(10)
                 .align_y(iced::Alignment::Center),
+                row![
+                    button(text(self.i18n.select_output()).size(13))
+                        .style(button_style(ButtonRole::Secondary))
+                        .padding([8, 12])
+                        .on_press(Message::SelectOutputDir),
+                    container(text(output_dir).size(13).color(color_text_secondary()))
+                        .style(style_path_pill)
+                        .padding([8, 12])
+                        .width(Length::Fill),
+                ]
+                .spacing(10)
+                .align_y(iced::Alignment::Center),
+            ]
+            .spacing(10),
+        )
+        .style(style_card)
+        .padding([14, 16]);
+
+        let mut channels_list = column![].spacing(8);
+        if self.state.channels.is_empty() {
+            channels_list = channels_list.push(
+                container(
+                    text(self.localized(
+                        "暂无渠道，先导入或手动添加",
+                        "No channels yet. Import or add one.",
+                    ))
+                    .size(13)
+                    .color(color_text_tertiary()),
+                )
+                .style(style_empty_row)
+                .padding([10, 12]),
             );
         }
 
-        let channels_panel = column![
-            row![
-                text(self.i18n.channels_label()).size(20),
-                text(format!("({})", self.state.channels.len())).size(14),
-            ]
-            .spacing(8)
-            .align_y(iced::Alignment::Center),
-            row![
-                button(self.i18n.import_channels()).on_press(Message::ImportChannels),
-                button(self.i18n.clear_channels()).on_press(Message::ClearChannels),
-            ]
-            .spacing(8),
-            row![
-                text_input(self.i18n.channel_input_placeholder(), &self.channel_input)
-                    .on_input(Message::ChannelInputChanged)
-                    .on_submit(Message::AddChannel)
-                    .width(Length::Fill),
-                button(self.i18n.add_channel()).on_press(Message::AddChannel)
-            ]
-            .spacing(8)
-            .align_y(iced::Alignment::Center),
-            scrollable(channels_list.spacing(6)).height(Length::Fill),
-        ]
-        .spacing(10)
-        .height(Length::Fill);
+        for (index, channel) in self.state.channels.iter().enumerate() {
+            channels_list = channels_list.push(
+                container(
+                    row![
+                        container(
+                            text(format!("{}", index + 1))
+                                .size(11)
+                                .color(color_text_secondary())
+                        )
+                        .style(style_index_badge)
+                        .padding([3, 8]),
+                        text(channel)
+                            .size(14)
+                            .color(color_text_primary())
+                            .width(Length::Fill),
+                        button(text(self.i18n.delete_channel()).size(12))
+                            .style(button_style(ButtonRole::Destructive))
+                            .padding([6, 10])
+                            .on_press(Message::RemoveChannel(index)),
+                    ]
+                    .spacing(9)
+                    .align_y(iced::Alignment::Center),
+                )
+                .style(style_list_row)
+                .padding([7, 9]),
+            );
+        }
 
-        let mut logs_column = column![];
+        let channels_panel = container(
+            column![
+                row![
+                    text(self.i18n.channels_label())
+                        .size(20)
+                        .color(color_text_primary()),
+                    iced::widget::horizontal_space(),
+                    container(
+                        text(format!("{}", self.state.channels.len()))
+                            .size(12)
+                            .color(color_text_secondary())
+                    )
+                    .style(style_count_badge)
+                    .padding([5, 10]),
+                ]
+                .align_y(iced::Alignment::Center),
+                row![
+                    button(text(self.i18n.import_channels()).size(13))
+                        .style(button_style(ButtonRole::Secondary))
+                        .padding([8, 12])
+                        .on_press(Message::ImportChannels),
+                    button(text(self.i18n.clear_channels()).size(13))
+                        .style(button_style(ButtonRole::Ghost))
+                        .padding([8, 12])
+                        .on_press(Message::ClearChannels),
+                ]
+                .spacing(8),
+                row![
+                    text_input(self.i18n.channel_input_placeholder(), &self.channel_input)
+                        .style(style_text_input)
+                        .padding([9, 10])
+                        .on_input(Message::ChannelInputChanged)
+                        .on_submit(Message::AddChannel)
+                        .width(Length::Fill),
+                    button(text(self.i18n.add_channel()).size(13))
+                        .style(button_style(ButtonRole::Secondary))
+                        .padding([8, 12])
+                        .on_press(Message::AddChannel),
+                ]
+                .spacing(8)
+                .align_y(iced::Alignment::Center),
+                scrollable(channels_list).height(Length::Fill),
+            ]
+            .spacing(10)
+            .height(Length::Fill),
+        )
+        .style(style_card)
+        .padding([14, 16])
+        .width(Length::FillPortion(1));
+
+        let mut logs_column = column![].spacing(8);
+        if self.state.logs.is_empty() {
+            logs_column = logs_column.push(
+                container(
+                    text(self.localized("暂无日志输出", "No logs yet"))
+                        .size(13)
+                        .color(color_text_tertiary()),
+                )
+                .style(style_empty_row)
+                .padding([10, 12]),
+            );
+        }
+
         for LogEntry {
             text: content,
             kind,
         } in &self.state.logs
         {
-            let color = match kind {
-                LogKind::Success => iced::Color::from_rgb8(105, 205, 120),
-                LogKind::Error => iced::Color::from_rgb8(235, 98, 98),
-                LogKind::Info => iced::Color::from_rgb8(135, 181, 235),
-                LogKind::Progress => iced::Color::from_rgb8(235, 190, 98),
-            };
-            logs_column = logs_column.push(text(content).size(13).color(color));
+            let tone = log_tone(*kind);
+            logs_column = logs_column.push(
+                container(
+                    row![
+                        container(text(tone.label).size(10).color(tone.badge_text))
+                            .style(move |_| style_log_badge(tone))
+                            .padding([3, 8]),
+                        text(content)
+                            .size(13)
+                            .color(color_text_primary())
+                            .width(Length::Fill),
+                    ]
+                    .spacing(8)
+                    .align_y(iced::Alignment::Center),
+                )
+                .style(move |_| style_log_row(tone))
+                .padding([8, 10]),
+            );
         }
 
-        let logs_panel = column![
-            text(self.i18n.logs_label()).size(20),
-            scrollable(logs_column.spacing(4)).height(Length::Fill)
-        ]
-        .spacing(10)
-        .height(Length::Fill);
+        let logs_panel = container(
+            column![
+                row![
+                    text(self.i18n.logs_label())
+                        .size(20)
+                        .color(color_text_primary()),
+                    iced::widget::horizontal_space(),
+                    container(
+                        text(format!("{}", self.state.logs.len()))
+                            .size(12)
+                            .color(color_text_secondary())
+                    )
+                    .style(style_count_badge)
+                    .padding([5, 10]),
+                ]
+                .align_y(iced::Alignment::Center),
+                scrollable(logs_column).height(Length::Fill)
+            ]
+            .spacing(10)
+            .height(Length::Fill),
+        )
+        .style(style_card)
+        .padding([14, 16])
+        .width(Length::FillPortion(1));
 
-        let main_panels = row![
-            container(channels_panel)
-                .width(Length::FillPortion(1))
-                .padding(12),
-            container(logs_panel)
-                .width(Length::FillPortion(1))
-                .padding(12),
-        ]
-        .spacing(12)
-        .height(Length::Fill);
+        let main_panels = row![channels_panel, logs_panel]
+            .spacing(12)
+            .height(Length::Fill);
 
         let start_button_label = if self.state.is_packing {
             self.i18n.packing()
@@ -379,24 +533,42 @@ impl MasonApp {
             self.i18n.start_pack()
         };
 
-        let footer = row![
-            text(format!(
-                "{}: {}",
-                self.i18n.status_label(),
-                self.status_text
-            ))
-            .size(14),
-            iced::widget::horizontal_space(),
-            button(start_button_label).on_press(Message::StartPack),
-        ]
-        .spacing(12)
-        .align_y(iced::Alignment::Center);
+        let start_button = {
+            let btn = button(text(start_button_label).size(14))
+                .style(button_style(ButtonRole::Primary))
+                .padding([10, 16]);
+
+            if self.state.can_start_pack() {
+                btn.on_press(Message::StartPack)
+            } else {
+                btn
+            }
+        };
+
+        let footer = container(
+            row![
+                text(format!(
+                    "{}: {}",
+                    self.i18n.status_label(),
+                    self.status_text
+                ))
+                .size(13)
+                .color(color_text_secondary()),
+                iced::widget::horizontal_space(),
+                start_button,
+            ]
+            .spacing(12)
+            .align_y(iced::Alignment::Center),
+        )
+        .style(style_footer)
+        .padding([10, 12]);
 
         container(
             column![header, file_controls, main_panels, footer]
-                .spacing(14)
-                .padding(16),
+                .spacing(12)
+                .padding([14, 14]),
         )
+        .style(style_app_background)
         .width(Length::Fill)
         .height(Length::Fill)
         .into()
@@ -470,6 +642,405 @@ impl MasonApp {
                     .push_log(LogKind::Error, format!("Packaging failed: {error}"));
                 self.status_text = self.i18n.failed().to_string();
             }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum ButtonRole {
+    Primary,
+    Secondary,
+    Ghost,
+    Destructive,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct LogTone {
+    label: &'static str,
+    badge_text: Color,
+    badge_bg: Color,
+    row_bg: Color,
+    row_border: Color,
+}
+
+fn color_canvas() -> Color {
+    Color::from_rgb8(238, 241, 246)
+}
+
+fn color_card() -> Color {
+    Color::from_rgb8(250, 251, 253)
+}
+
+fn color_card_emphasis() -> Color {
+    Color::from_rgb8(246, 249, 255)
+}
+
+fn color_border() -> Color {
+    Color::from_rgb8(216, 223, 233)
+}
+
+fn color_text_primary() -> Color {
+    Color::from_rgb8(31, 37, 45)
+}
+
+fn color_text_secondary() -> Color {
+    Color::from_rgb8(91, 103, 120)
+}
+
+fn color_text_tertiary() -> Color {
+    Color::from_rgb8(132, 145, 164)
+}
+
+fn color_blue() -> Color {
+    Color::from_rgb8(45, 108, 246)
+}
+
+fn color_blue_hover() -> Color {
+    Color::from_rgb8(37, 96, 231)
+}
+
+fn color_blue_pressed() -> Color {
+    Color::from_rgb8(30, 83, 205)
+}
+
+fn color_red() -> Color {
+    Color::from_rgb8(217, 76, 76)
+}
+
+fn color_red_hover() -> Color {
+    Color::from_rgb8(197, 65, 65)
+}
+
+fn color_red_pressed() -> Color {
+    Color::from_rgb8(174, 56, 56)
+}
+
+fn style_app_background(_theme: &Theme) -> container::Style {
+    container::Style {
+        text_color: Some(color_text_primary()),
+        background: Some(Background::Color(color_canvas())),
+        border: Border::default(),
+        shadow: Shadow::default(),
+    }
+}
+
+fn style_header_card(_theme: &Theme) -> container::Style {
+    container::Style {
+        text_color: Some(color_text_primary()),
+        background: Some(Background::Color(color_card_emphasis())),
+        border: Border {
+            radius: 20.0.into(),
+            width: 1.0,
+            color: Color::from_rgb8(210, 220, 238),
+        },
+        shadow: Shadow {
+            color: Color::from_rgba(0.14, 0.19, 0.29, 0.08),
+            offset: Vector::new(0.0, 1.0),
+            blur_radius: 10.0,
+        },
+    }
+}
+
+fn style_card(_theme: &Theme) -> container::Style {
+    container::Style {
+        text_color: Some(color_text_primary()),
+        background: Some(Background::Color(color_card())),
+        border: Border {
+            radius: 18.0.into(),
+            width: 1.0,
+            color: color_border(),
+        },
+        shadow: Shadow {
+            color: Color::from_rgba(0.09, 0.14, 0.22, 0.06),
+            offset: Vector::new(0.0, 1.0),
+            blur_radius: 8.0,
+        },
+    }
+}
+
+fn style_footer(_theme: &Theme) -> container::Style {
+    container::Style {
+        text_color: Some(color_text_primary()),
+        background: Some(Background::Color(Color::from_rgb8(247, 249, 252))),
+        border: Border {
+            radius: 14.0.into(),
+            width: 1.0,
+            color: Color::from_rgb8(217, 224, 235),
+        },
+        shadow: Shadow::default(),
+    }
+}
+
+fn style_path_pill(_theme: &Theme) -> container::Style {
+    container::Style {
+        text_color: Some(color_text_secondary()),
+        background: Some(Background::Color(Color::from_rgb8(243, 246, 251))),
+        border: Border {
+            radius: 11.0.into(),
+            width: 1.0,
+            color: Color::from_rgb8(219, 226, 238),
+        },
+        shadow: Shadow::default(),
+    }
+}
+
+fn style_tag_badge(_theme: &Theme) -> container::Style {
+    container::Style {
+        text_color: Some(color_text_secondary()),
+        background: Some(Background::Color(Color::from_rgb8(241, 246, 255))),
+        border: Border {
+            radius: 999.0.into(),
+            width: 1.0,
+            color: Color::from_rgb8(196, 216, 248),
+        },
+        shadow: Shadow::default(),
+    }
+}
+
+fn style_status_ok_badge(_theme: &Theme) -> container::Style {
+    container::Style {
+        text_color: Some(Color::from_rgb8(38, 108, 69)),
+        background: Some(Background::Color(Color::from_rgb8(229, 247, 236))),
+        border: Border {
+            radius: 999.0.into(),
+            width: 1.0,
+            color: Color::from_rgb8(172, 223, 186),
+        },
+        shadow: Shadow::default(),
+    }
+}
+
+fn style_status_warn_badge(_theme: &Theme) -> container::Style {
+    container::Style {
+        text_color: Some(Color::from_rgb8(138, 76, 39)),
+        background: Some(Background::Color(Color::from_rgb8(252, 240, 226))),
+        border: Border {
+            radius: 999.0.into(),
+            width: 1.0,
+            color: Color::from_rgb8(238, 205, 168),
+        },
+        shadow: Shadow::default(),
+    }
+}
+
+fn style_count_badge(_theme: &Theme) -> container::Style {
+    container::Style {
+        text_color: Some(color_text_secondary()),
+        background: Some(Background::Color(Color::from_rgb8(239, 244, 251))),
+        border: Border {
+            radius: 999.0.into(),
+            width: 1.0,
+            color: Color::from_rgb8(206, 217, 233),
+        },
+        shadow: Shadow::default(),
+    }
+}
+
+fn style_index_badge(_theme: &Theme) -> container::Style {
+    container::Style {
+        text_color: Some(color_text_secondary()),
+        background: Some(Background::Color(Color::from_rgb8(239, 245, 255))),
+        border: Border {
+            radius: 999.0.into(),
+            width: 1.0,
+            color: Color::from_rgb8(210, 221, 239),
+        },
+        shadow: Shadow::default(),
+    }
+}
+
+fn style_list_row(_theme: &Theme) -> container::Style {
+    container::Style {
+        text_color: Some(color_text_primary()),
+        background: Some(Background::Color(Color::from_rgb8(252, 253, 255))),
+        border: Border {
+            radius: 12.0.into(),
+            width: 1.0,
+            color: Color::from_rgb8(226, 232, 242),
+        },
+        shadow: Shadow::default(),
+    }
+}
+
+fn style_empty_row(_theme: &Theme) -> container::Style {
+    container::Style {
+        text_color: Some(color_text_tertiary()),
+        background: Some(Background::Color(Color::from_rgb8(245, 248, 252))),
+        border: Border {
+            radius: 12.0.into(),
+            width: 1.0,
+            color: Color::from_rgb8(225, 232, 241),
+        },
+        shadow: Shadow::default(),
+    }
+}
+
+fn style_log_row(tone: LogTone) -> container::Style {
+    container::Style {
+        text_color: Some(color_text_primary()),
+        background: Some(Background::Color(tone.row_bg)),
+        border: Border {
+            radius: 12.0.into(),
+            width: 1.0,
+            color: tone.row_border,
+        },
+        shadow: Shadow::default(),
+    }
+}
+
+fn style_log_badge(tone: LogTone) -> container::Style {
+    container::Style {
+        text_color: Some(tone.badge_text),
+        background: Some(Background::Color(tone.badge_bg)),
+        border: Border {
+            radius: 999.0.into(),
+            width: 1.0,
+            color: tone.row_border,
+        },
+        shadow: Shadow::default(),
+    }
+}
+
+fn log_tone(kind: LogKind) -> LogTone {
+    match kind {
+        LogKind::Success => LogTone {
+            label: "OK",
+            badge_text: Color::from_rgb8(32, 109, 65),
+            badge_bg: Color::from_rgb8(224, 245, 233),
+            row_bg: Color::from_rgb8(245, 251, 247),
+            row_border: Color::from_rgb8(191, 228, 205),
+        },
+        LogKind::Error => LogTone {
+            label: "ERR",
+            badge_text: Color::from_rgb8(153, 46, 46),
+            badge_bg: Color::from_rgb8(252, 232, 232),
+            row_bg: Color::from_rgb8(255, 246, 246),
+            row_border: Color::from_rgb8(240, 203, 203),
+        },
+        LogKind::Info => LogTone {
+            label: "INFO",
+            badge_text: Color::from_rgb8(42, 93, 166),
+            badge_bg: Color::from_rgb8(228, 239, 253),
+            row_bg: Color::from_rgb8(246, 250, 255),
+            row_border: Color::from_rgb8(196, 216, 243),
+        },
+        LogKind::Progress => LogTone {
+            label: "RUN",
+            badge_text: Color::from_rgb8(131, 94, 37),
+            badge_bg: Color::from_rgb8(250, 239, 217),
+            row_bg: Color::from_rgb8(255, 251, 241),
+            row_border: Color::from_rgb8(238, 217, 171),
+        },
+    }
+}
+
+fn style_text_input(_theme: &Theme, status: text_input::Status) -> text_input::Style {
+    let mut border_color = Color::from_rgb8(206, 215, 229);
+    let mut background = Color::from_rgb8(252, 253, 255);
+
+    match status {
+        text_input::Status::Hovered => {
+            border_color = Color::from_rgb8(183, 196, 215);
+        }
+        text_input::Status::Focused => {
+            border_color = color_blue();
+        }
+        text_input::Status::Disabled => {
+            border_color = Color::from_rgb8(222, 228, 238);
+            background = Color::from_rgb8(246, 248, 252);
+        }
+        _ => {}
+    }
+
+    text_input::Style {
+        background: Background::Color(background),
+        border: Border {
+            radius: 11.0.into(),
+            width: 1.0,
+            color: border_color,
+        },
+        icon: color_text_tertiary(),
+        placeholder: color_text_tertiary(),
+        value: color_text_primary(),
+        selection: Color::from_rgba(0.21, 0.45, 0.96, 0.25),
+    }
+}
+
+fn button_style(role: ButtonRole) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |_theme, status| {
+        let (background, text, border) = match (role, status) {
+            (_, button::Status::Disabled) => (
+                Color::from_rgb8(234, 238, 245),
+                Color::from_rgb8(150, 160, 174),
+                Color::from_rgb8(214, 223, 236),
+            ),
+            (ButtonRole::Primary, button::Status::Hovered) => (
+                color_blue_hover(),
+                Color::WHITE,
+                Color::from_rgb8(30, 90, 217),
+            ),
+            (ButtonRole::Primary, button::Status::Pressed) => (
+                color_blue_pressed(),
+                Color::WHITE,
+                Color::from_rgb8(24, 74, 183),
+            ),
+            (ButtonRole::Primary, _) => {
+                (color_blue(), Color::WHITE, Color::from_rgb8(44, 100, 223))
+            }
+            (ButtonRole::Secondary, button::Status::Hovered) => (
+                Color::from_rgb8(239, 245, 255),
+                Color::from_rgb8(53, 90, 150),
+                Color::from_rgb8(165, 191, 234),
+            ),
+            (ButtonRole::Secondary, button::Status::Pressed) => (
+                Color::from_rgb8(227, 236, 251),
+                Color::from_rgb8(44, 78, 133),
+                Color::from_rgb8(149, 177, 223),
+            ),
+            (ButtonRole::Secondary, _) => (
+                Color::from_rgb8(235, 243, 255),
+                Color::from_rgb8(59, 93, 149),
+                Color::from_rgb8(180, 203, 241),
+            ),
+            (ButtonRole::Destructive, button::Status::Hovered) => (
+                color_red_hover(),
+                Color::WHITE,
+                Color::from_rgb8(180, 55, 55),
+            ),
+            (ButtonRole::Destructive, button::Status::Pressed) => (
+                color_red_pressed(),
+                Color::WHITE,
+                Color::from_rgb8(159, 49, 49),
+            ),
+            (ButtonRole::Destructive, _) => {
+                (color_red(), Color::WHITE, Color::from_rgb8(193, 66, 66))
+            }
+            (ButtonRole::Ghost, button::Status::Hovered) => (
+                Color::from_rgb8(239, 243, 250),
+                color_text_primary(),
+                Color::from_rgb8(187, 198, 215),
+            ),
+            (ButtonRole::Ghost, button::Status::Pressed) => (
+                Color::from_rgb8(228, 233, 243),
+                color_text_primary(),
+                Color::from_rgb8(174, 186, 204),
+            ),
+            (ButtonRole::Ghost, _) => (
+                Color::from_rgb8(246, 249, 253),
+                color_text_secondary(),
+                Color::from_rgb8(210, 220, 233),
+            ),
+        };
+
+        button::Style {
+            background: Some(Background::Color(background)),
+            text_color: text,
+            border: Border {
+                radius: 10.0.into(),
+                width: 1.0,
+                color: border,
+            },
+            shadow: Shadow::default(),
         }
     }
 }

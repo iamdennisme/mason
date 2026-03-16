@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="106" y1="116" x2="918" y2="924" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F4F8FF"/>
+      <stop offset="0.52" stop-color="#D8E4FF"/>
+      <stop offset="1" stop-color="#BFD2FF"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="188" y1="170" x2="836" y2="852" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.92"/>
+      <stop offset="1" stop-color="#AFC4F4" stop-opacity="0.5"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(326 252) rotate(43.5) scale(496 418)">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.85"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="metal" x1="246" y1="338" x2="796" y2="338" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#F6FBFF"/>
+      <stop offset="0.48" stop-color="#D6E3F2"/>
+      <stop offset="1" stop-color="#B9C8DF"/>
+    </linearGradient>
+    <linearGradient id="metal_edge" x1="258" y1="356" x2="760" y2="262" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#C9D7EA"/>
+      <stop offset="1" stop-color="#EEF5FF"/>
+    </linearGradient>
+    <linearGradient id="wood" x1="430" y1="716" x2="580" y2="344" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8B563A"/>
+      <stop offset="0.52" stop-color="#B9784E"/>
+      <stop offset="1" stop-color="#E3A176"/>
+    </linearGradient>
+    <linearGradient id="wood_hl" x1="476" y1="662" x2="533" y2="380" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0.45"/>
+    </linearGradient>
+    <filter id="shadow" x="34" y="38" width="956" height="956" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+      <feOffset dy="16"/>
+      <feGaussianBlur stdDeviation="14"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.0902 0 0 0 0 0.1686 0 0 0 0 0.3216 0 0 0 0.24 0"/>
+      <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_1_2"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_1_2" result="shape"/>
+    </filter>
+    <filter id="hammer_shadow" x="184" y="196" width="656" height="620" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+      <feOffset dy="12"/>
+      <feGaussianBlur stdDeviation="10"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.1098 0 0 0 0 0.1529 0 0 0 0 0.2392 0 0 0 0.26 0"/>
+      <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_1_3"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_1_3" result="shape"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#shadow)">
+    <rect x="62" y="62" width="900" height="900" rx="214" fill="url(#bg)"/>
+    <rect x="69" y="69" width="886" height="886" rx="208" stroke="url(#rim)" stroke-width="14"/>
+    <rect x="80" y="80" width="864" height="864" rx="198" fill="url(#glow)"/>
+  </g>
+
+  <g filter="url(#hammer_shadow)" transform="translate(512 534) rotate(-28)">
+    <rect x="-250" y="-314" width="500" height="140" rx="66" fill="url(#metal)"/>
+    <rect x="-238" y="-302" width="476" height="116" rx="56" stroke="url(#metal_edge)" stroke-width="10"/>
+
+    <path d="M-252 -304 C-326 -278 -356 -248 -364 -206 C-315 -190 -271 -197 -226 -235 Z" fill="#D2DEEF"/>
+    <path d="M250 -300 C326 -276 357 -245 362 -202 C315 -187 273 -196 226 -233 Z" fill="#CCD9EC"/>
+
+    <rect x="-46" y="-176" width="92" height="492" rx="44" fill="url(#wood)"/>
+    <rect x="-22" y="-156" width="22" height="446" rx="11" fill="url(#wood_hl)"/>
+    <ellipse cx="0" cy="308" rx="58" ry="52" fill="#8A5439"/>
+    <ellipse cx="0" cy="306" rx="43" ry="34" fill="#C2865E"/>
+
+    <path d="M-54 30 C-18 50 18 52 54 30" stroke="#8C5C3F" stroke-width="8" stroke-linecap="round"/>
+    <path d="M-54 126 C-18 146 18 146 54 126" stroke="#8C5C3F" stroke-width="8" stroke-linecap="round"/>
+    <path d="M-54 222 C-18 242 18 242 54 222" stroke="#8C5C3F" stroke-width="8" stroke-linecap="round"/>
+  </g>
+
+  <circle cx="768" cy="770" r="96" fill="#FFFFFF" fill-opacity="0.18"/>
+</svg>
