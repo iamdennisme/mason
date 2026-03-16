@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:window_manager/window_manager.dart';
 import 'dart:io';
 import 'package:mason/core/theme/app_colors.dart';
+import 'package:mason/core/theme/app_theme.dart';
 import 'package:mason/core/utils/java_manager.dart';
 import '../providers/channel_pack_provider.dart';
 
@@ -711,7 +712,7 @@ class _OutputSelector extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 14,
                       color: outputDir != null ? AppColors.textPrimary : AppColors.textTertiary,
-                      fontFamily: 'JetBrains Mono',
+                      fontFamily: AppTheme.monospaceFontFamily,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -1183,7 +1184,7 @@ class _ChannelItemState extends State<_ChannelItem> {
                 style: TextStyle(
                   fontSize: 12,
                   color: AppColors.textTertiary,
-                  fontFamily: 'JetBrains Mono',
+                  fontFamily: AppTheme.monospaceFontFamily,
                 ),
               ),
             ),
@@ -1351,7 +1352,7 @@ class _LogItem extends StatelessWidget {
               log.text,
               style: TextStyle(
                 fontSize: 13,
-                fontFamily: 'JetBrains Mono',
+                fontFamily: AppTheme.monospaceFontFamily,
                 color: color,
                 height: 1.5,
               ),
