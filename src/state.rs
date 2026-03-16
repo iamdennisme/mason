@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+pub const MAX_LOGS: usize = 300;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LogKind {
     Success,
@@ -55,8 +57,20 @@ impl AppState {
             && !self.channels.is_empty()
     }
 
+    pub fn push_log_entry(&mut self, entry: LogEntry) {
+        self.logs.push(entry);
+        self.trim_logs();
+    }
+
     pub fn push_log(&mut self, kind: LogKind, message: impl Into<String>) {
-        self.logs.push(LogEntry::new(kind, message));
+        self.push_log_entry(LogEntry::new(kind, message));
+    }
+
+    fn trim_logs(&mut self) {
+        let overflow = self.logs.len().saturating_sub(MAX_LOGS);
+        if overflow > 0 {
+            self.logs.drain(0..overflow);
+        }
     }
 }
 

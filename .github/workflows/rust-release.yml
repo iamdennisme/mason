@@ -11,24 +11,26 @@ permissions:
 
 jobs:
   build-macos:
-    runs-on: macos-latest
+    runs-on: macos-14
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
 
       - name: Download embedded JRE
         shell: bash
         run: |
           set -euo pipefail
           ARCH="$(uname -m)"
-          case "$ARCH" in
-            arm64) JRE_ARCH="aarch64" ;;
-            x86_64) JRE_ARCH="x64" ;;
-            *) echo "Unsupported macOS architecture: $ARCH" >&2; exit 1 ;;
-          esac
+          if [ "$ARCH" != "arm64" ]; then
+            echo "This build is Apple Silicon only. Current runner arch: $ARCH" >&2
+            exit 1
+          fi
+          JRE_ARCH="aarch64"
 
           rm -rf .jre-cache resources/jre
           mkdir -p .jre-cache resources
@@ -45,16 +47,20 @@ jobs:
           mkdir -p resources/jre
           cp -R "${JRE_HOME}/." resources/jre/
 
-      - name: Build binary
-        run: cargo build --release
+      - name: Build binary (arm64)
+        run: cargo build --release --target aarch64-apple-darwin
 
       - name: Package app and dmg
         shell: bash
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
+          if [ -z "${VERSION}" ]; then
+            VERSION="$(awk -F'"' '/^version =/{print $2; exit}' Cargo.toml)"
+          fi
           APP_DIR="dist/Mason.app"
-          BIN_PATH="target/release/mason"
+          BIN_PATH="target/aarch64-apple-darwin/release/mason"
+          INSTALL_GUIDE="dist/MACOS_INSTALL.md"
 
           mkdir -p "$APP_DIR/Contents/MacOS"
           mkdir -p "$APP_DIR/Contents/Resources/walle"
@@ -98,6 +104,27 @@ jobs:
 
           shasum -a 256 "$DMG_PATH" > "$DMG_PATH.sha256"
 
+          cat > "$INSTALL_GUIDE" <<'GUIDE'
+          # Mason macOS Installation (Apple Silicon)
+
+          This macOS package is not notarized (no Apple Developer account yet).
+          If Gatekeeper blocks launch on first run, do this:
+
+          1. Drag `Mason.app` to `Applications`.
+          2. In `Applications`, right-click `Mason.app` and click `Open`.
+          3. In the warning dialog, click `Open` again.
+
+          Optional terminal fallback:
+
+          ```bash
+          xattr -dr com.apple.quarantine /Applications/Mason.app
+          ```
+
+          Notes:
+          - Supported architecture: Apple Silicon (arm64) only.
+          - Embedded JRE is bundled inside the app.
+          GUIDE
+
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -105,6 +132,7 @@ jobs:
           path: |
             dist/Mason-*-macos.dmg
             dist/Mason-*-macos.dmg.sha256
+            dist/MACOS_INSTALL.md
 
   build-linux:
     runs-on: ubuntu-latest
@@ -339,10 +367,38 @@ jobs:
           name: mason-windows
           path: release-artifacts/windows
 
+      - name: Prepare release notes
+        shell: bash
+        run: |
+          cat > release-artifacts/RELEASE_BODY.md <<'EOF'
+          ## Mason ${{ github.ref_name }}
+
+          ### Platform support
+          - macOS: Apple Silicon (arm64) only
+          - Linux: x86_64
+          - Windows: x64
+
+          ### macOS install note
+          This macOS build is currently **not notarized** (no Apple Developer account yet).
+          If first launch is blocked by Gatekeeper, use:
+
+          1. Drag `Mason.app` to `Applications`.
+          2. Right-click `Mason.app` in `Applications`, choose `Open`.
+          3. Click `Open` again in the warning dialog.
+
+          Optional terminal fallback:
+          ```bash
+          xattr -dr com.apple.quarantine /Applications/Mason.app
+          ```
+
+          Also see attached `MACOS_INSTALL.md` in this release.
+          EOF
+
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          generate_release_notes: false
+          body_path: release-artifacts/RELEASE_BODY.md
           files: |
             release-artifacts/macos/*
             release-artifacts/linux/*

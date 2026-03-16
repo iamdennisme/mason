@@ -5,7 +5,7 @@ mod worker;
 
 use crate::i18n::I18n;
 use crate::runtime::check_environment;
-use crate::state::{AppState, LogEntry, LogKind, PackRequest, WorkerEvent};
+use crate::state::{AppState, LogEntry, LogKind, PackRequest, WorkerEvent, MAX_LOGS};
 use iced::widget::{button, column, container, row, scrollable, text, text_input};
 use iced::{
     application, window, Background, Border, Color, Element, Font, Length, Shadow, Subscription,
@@ -21,6 +21,7 @@ use std::time::{Duration, Instant};
 const HARMONYOS_SANS_SC_BYTES: &[u8] =
     include_bytes!("../resources/fonts/HarmonyOS_Sans_SC_Regular.ttf");
 const HARMONYOS_SANS_SC_FONT: Font = Font::with_name("HarmonyOS Sans SC");
+const LOG_RENDER_LIMIT: usize = 120;
 
 #[derive(Debug, Clone)]
 enum Message {
@@ -260,7 +261,7 @@ impl MasonApp {
 
     fn subscription(&self) -> Subscription<Message> {
         if self.state.is_packing {
-            iced::time::every(Duration::from_millis(120)).map(Message::Tick)
+            iced::time::every(Duration::from_millis(200)).map(Message::Tick)
         } else {
             Subscription::none()
         }
@@ -460,8 +461,16 @@ impl MasonApp {
         .padding([14, 16])
         .width(Length::FillPortion(1));
 
+        let total_logs = self.state.logs.len();
+        let logs_slice = if total_logs > LOG_RENDER_LIMIT {
+            &self.state.logs[total_logs - LOG_RENDER_LIMIT..]
+        } else {
+            &self.state.logs[..]
+        };
+        let hidden_logs = total_logs.saturating_sub(logs_slice.len());
+
         let mut logs_column = column![].spacing(8);
-        if self.state.logs.is_empty() {
+        if total_logs == 0 {
             logs_column = logs_column.push(
                 container(
                     text(self.localized("暂无日志输出", "No logs yet"))
@@ -473,17 +482,46 @@ impl MasonApp {
             );
         }
 
+        if hidden_logs > 0 {
+            logs_column = logs_column.push(
+                container(
+                    text(match self.i18n.locale() {
+                        i18n::Locale::ZhCn => {
+                            format!(
+                                "仅渲染最近 {} / {} 条日志（上限 {}）",
+                                logs_slice.len(),
+                                total_logs,
+                                MAX_LOGS
+                            )
+                        }
+                        i18n::Locale::EnUs => {
+                            format!(
+                                "Rendering latest {} / {} logs (cap: {})",
+                                logs_slice.len(),
+                                total_logs,
+                                MAX_LOGS
+                            )
+                        }
+                    })
+                    .size(12)
+                    .color(color_text_tertiary()),
+                )
+                .style(style_empty_row)
+                .padding([8, 10]),
+            );
+        }
+
         for LogEntry {
             text: content,
             kind,
-        } in &self.state.logs
+        } in logs_slice
         {
-            let tone = log_tone(*kind);
+            let visual = log_visual(*kind);
             logs_column = logs_column.push(
                 container(
                     row![
-                        container(text(tone.label).size(10).color(tone.badge_text))
-                            .style(move |_| style_log_badge(tone))
+                        container(text(visual.label).size(10).color(visual.badge_text))
+                            .style(visual.badge_style)
                             .padding([3, 8]),
                         text(content)
                             .size(13)
@@ -493,7 +531,7 @@ impl MasonApp {
                     .spacing(8)
                     .align_y(iced::Alignment::Center),
                 )
-                .style(move |_| style_log_row(tone))
+                .style(visual.row_style)
                 .padding([8, 10]),
             );
         }
@@ -506,7 +544,7 @@ impl MasonApp {
                         .color(color_text_primary()),
                     iced::widget::horizontal_space(),
                     container(
-                        text(format!("{}", self.state.logs.len()))
+                        text(format!("{}", total_logs))
                             .size(12)
                             .color(color_text_secondary())
                     )
@@ -620,7 +658,7 @@ impl MasonApp {
                 );
                 self.status_text = self.i18n.packing_progress(current, total);
             }
-            WorkerEvent::Log(entry) => self.state.logs.push(entry),
+            WorkerEvent::Log(entry) => self.state.push_log_entry(entry),
             WorkerEvent::Completed {
                 generated_files,
                 elapsed_ms,
@@ -654,13 +692,12 @@ enum ButtonRole {
     Destructive,
 }
 
-#[derive(Clone, Copy, Debug)]
-struct LogTone {
+#[derive(Clone, Copy)]
+struct LogVisual {
     label: &'static str,
     badge_text: Color,
-    badge_bg: Color,
-    row_bg: Color,
-    row_border: Color,
+    badge_style: fn(&Theme) -> container::Style,
+    row_style: fn(&Theme) -> container::Style,
 }
 
 fn color_canvas() -> Color {
@@ -736,7 +773,7 @@ fn style_header_card(_theme: &Theme) -> container::Style {
         shadow: Shadow {
             color: Color::from_rgba(0.14, 0.19, 0.29, 0.08),
             offset: Vector::new(0.0, 1.0),
-            blur_radius: 10.0,
+            blur_radius: 6.0,
         },
     }
 }
@@ -753,7 +790,7 @@ fn style_card(_theme: &Theme) -> container::Style {
         shadow: Shadow {
             color: Color::from_rgba(0.09, 0.14, 0.22, 0.06),
             offset: Vector::new(0.0, 1.0),
-            blur_radius: 8.0,
+            blur_radius: 4.0,
         },
     }
 }
@@ -875,61 +912,135 @@ fn style_empty_row(_theme: &Theme) -> container::Style {
     }
 }
 
-fn style_log_row(tone: LogTone) -> container::Style {
+fn style_log_row_success(_theme: &Theme) -> container::Style {
     container::Style {
         text_color: Some(color_text_primary()),
-        background: Some(Background::Color(tone.row_bg)),
+        background: Some(Background::Color(Color::from_rgb8(245, 251, 247))),
         border: Border {
             radius: 12.0.into(),
             width: 1.0,
-            color: tone.row_border,
+            color: Color::from_rgb8(191, 228, 205),
         },
         shadow: Shadow::default(),
     }
 }
 
-fn style_log_badge(tone: LogTone) -> container::Style {
+fn style_log_badge_success(_theme: &Theme) -> container::Style {
     container::Style {
-        text_color: Some(tone.badge_text),
-        background: Some(Background::Color(tone.badge_bg)),
+        text_color: Some(Color::from_rgb8(32, 109, 65)),
+        background: Some(Background::Color(Color::from_rgb8(224, 245, 233))),
         border: Border {
             radius: 999.0.into(),
             width: 1.0,
-            color: tone.row_border,
+            color: Color::from_rgb8(191, 228, 205),
         },
         shadow: Shadow::default(),
     }
 }
 
-fn log_tone(kind: LogKind) -> LogTone {
+fn style_log_row_error(_theme: &Theme) -> container::Style {
+    container::Style {
+        text_color: Some(color_text_primary()),
+        background: Some(Background::Color(Color::from_rgb8(255, 246, 246))),
+        border: Border {
+            radius: 12.0.into(),
+            width: 1.0,
+            color: Color::from_rgb8(240, 203, 203),
+        },
+        shadow: Shadow::default(),
+    }
+}
+
+fn style_log_badge_error(_theme: &Theme) -> container::Style {
+    container::Style {
+        text_color: Some(Color::from_rgb8(153, 46, 46)),
+        background: Some(Background::Color(Color::from_rgb8(252, 232, 232))),
+        border: Border {
+            radius: 999.0.into(),
+            width: 1.0,
+            color: Color::from_rgb8(240, 203, 203),
+        },
+        shadow: Shadow::default(),
+    }
+}
+
+fn style_log_row_info(_theme: &Theme) -> container::Style {
+    container::Style {
+        text_color: Some(color_text_primary()),
+        background: Some(Background::Color(Color::from_rgb8(246, 250, 255))),
+        border: Border {
+            radius: 12.0.into(),
+            width: 1.0,
+            color: Color::from_rgb8(196, 216, 243),
+        },
+        shadow: Shadow::default(),
+    }
+}
+
+fn style_log_badge_info(_theme: &Theme) -> container::Style {
+    container::Style {
+        text_color: Some(Color::from_rgb8(42, 93, 166)),
+        background: Some(Background::Color(Color::from_rgb8(228, 239, 253))),
+        border: Border {
+            radius: 999.0.into(),
+            width: 1.0,
+            color: Color::from_rgb8(196, 216, 243),
+        },
+        shadow: Shadow::default(),
+    }
+}
+
+fn style_log_row_progress(_theme: &Theme) -> container::Style {
+    container::Style {
+        text_color: Some(color_text_primary()),
+        background: Some(Background::Color(Color::from_rgb8(255, 251, 241))),
+        border: Border {
+            radius: 12.0.into(),
+            width: 1.0,
+            color: Color::from_rgb8(238, 217, 171),
+        },
+        shadow: Shadow::default(),
+    }
+}
+
+fn style_log_badge_progress(_theme: &Theme) -> container::Style {
+    container::Style {
+        text_color: Some(Color::from_rgb8(131, 94, 37)),
+        background: Some(Background::Color(Color::from_rgb8(250, 239, 217))),
+        border: Border {
+            radius: 999.0.into(),
+            width: 1.0,
+            color: Color::from_rgb8(238, 217, 171),
+        },
+        shadow: Shadow::default(),
+    }
+}
+
+fn log_visual(kind: LogKind) -> LogVisual {
     match kind {
-        LogKind::Success => LogTone {
+        LogKind::Success => LogVisual {
             label: "OK",
             badge_text: Color::from_rgb8(32, 109, 65),
-            badge_bg: Color::from_rgb8(224, 245, 233),
-            row_bg: Color::from_rgb8(245, 251, 247),
-            row_border: Color::from_rgb8(191, 228, 205),
+            badge_style: style_log_badge_success,
+            row_style: style_log_row_success,
         },
-        LogKind::Error => LogTone {
+        LogKind::Error => LogVisual {
             label: "ERR",
             badge_text: Color::from_rgb8(153, 46, 46),
-            badge_bg: Color::from_rgb8(252, 232, 232),
-            row_bg: Color::from_rgb8(255, 246, 246),
-            row_border: Color::from_rgb8(240, 203, 203),
+            badge_style: style_log_badge_error,
+            row_style: style_log_row_error,
         },
-        LogKind::Info => LogTone {
+        LogKind::Info => LogVisual {
             label: "INFO",
             badge_text: Color::from_rgb8(42, 93, 166),
-            badge_bg: Color::from_rgb8(228, 239, 253),
-            row_bg: Color::from_rgb8(246, 250, 255),
-            row_border: Color::from_rgb8(196, 216, 243),
+            badge_style: style_log_badge_info,
+            row_style: style_log_row_info,
         },
-        LogKind::Progress => LogTone {
+        LogKind::Progress => LogVisual {
             label: "RUN",
             badge_text: Color::from_rgb8(131, 94, 37),
-            badge_bg: Color::from_rgb8(250, 239, 217),
-            row_bg: Color::from_rgb8(255, 251, 241),
-            row_border: Color::from_rgb8(238, 217, 171),
+            badge_style: style_log_badge_progress,
+            row_style: style_log_row_progress,
         },
     }
 }

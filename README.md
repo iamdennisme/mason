@@ -51,6 +51,27 @@ Windows：
 .\scripts\download_jre.ps1 -OutDir "target\release\resources\jre"
 ```
 
+本地打包 macOS `.dmg`（内置 JRE）：
+
+```bash
+./scripts/package_macos_dmg.sh
+```
+
+会同时生成安装指引文件：`dist/MACOS_INSTALL.md`。
+
+常用参数：
+
+```bash
+./scripts/package_macos_dmg.sh --version 1.0.0
+./scripts/package_macos_dmg.sh --skip-jre-download
+./scripts/package_macos_dmg.sh --skip-build
+```
+
+性能说明（窗口缩放）：
+- 调试模式 `cargo run` 在 UI 重排时会更慢，缩放体验不代表最终发布效果。
+- 建议用 `cargo build --release && ./target/release/mason` 验证桌面流畅度。
+- 应用日志默认仅保留最近 300 条，界面默认渲染最近 120 条以降低重排开销。
+
 ## 运行时资源路径
 
 - macOS: `Mason.app/Contents/Resources/jre/bin/java`
@@ -76,8 +97,14 @@ Windows：
 
 说明：CI 会在构建时直接下载 JRE（Adoptium），并打入各平台产物，不依赖 Runner 系统 Java。
 
+macOS 发布说明（当前无 Apple Developer 账号）：
+- macOS 产物为 **Apple Silicon (arm64) only**
+- 当前不含 Developer ID 签名与公证（notarization）
+- 首次启动若被 Gatekeeper 拦截：在 `Applications` 里右键 `Mason.app` -> `打开` -> 再次 `打开`
+- 备用命令：`xattr -dr com.apple.quarantine /Applications/Mason.app`
+
 产物：
 
-- macOS: `dmg`
+- macOS: `dmg` + `MACOS_INSTALL.md`
 - Linux: `AppImage + deb`
 - Windows: `NSIS installer + portable zip`
